@@ -68,18 +68,20 @@ Result: random forest R² went from **0.72 → 0.94**.
 
 ```bash
 pip install -r requirements.txt
-# put cardekho_dataset.csv (CarDekho used-car listings, available on Kaggle) in data/
-python train.py      # trains and saves car_model.joblib
-python server.py     # open http://localhost:8502
+streamlit run streamlit_app.py      # trains on first start (~20 s), then opens the app
 ```
+
+Or without Streamlit: `python train.py` once, then `python server.py` and open http://localhost:8502.
 
 ## Project structure
 
 ```
 notebook/car_price_analysis.py   the full analysis (exported from my Colab notebook)
-train.py                         same cleaning, trains the final model on all data
-server.py                        Flask API: /api/options and /api/predict
-static/index.html                the web app
+data/cardekho_dataset.csv        CarDekho used-car listings (public Kaggle dataset)
+carprice.py                      cleaning, training and prediction, shared by both apps
+streamlit_app.py                 live demo: embeds the web UI as a two-way Streamlit component
+server.py + train.py             same UI served by Flask instead
+static/index.html                the web UI
 ```
 
 ## Credits

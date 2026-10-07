@@ -13,13 +13,21 @@
   font: 100%/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #98989d;
+  :root:not([data-theme=light]) { --bg: #000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #98989d;
     --line: rgba(255,255,255,.1); --accent: #2997ff; --seg: #2c2c2e; --seg-on: #636366;
     --tyre-rim: #8e8e93; --up: #32d74b; --down: #ff7a59; --car: #2997ff; --glass-car: #1f3a5c;
     --glass: rgba(0,0,0,.6); --shadow: none; --pop: rgba(44,44,46,.88); }
 }
+/* Inside Streamlit the page's theme decides, not the OS */
+:root[data-theme=dark] { --bg: #000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #98989d;
+  --line: rgba(255,255,255,.1); --accent: #2997ff; --seg: #2c2c2e; --seg-on: #636366;
+  --tyre-rim: #8e8e93; --up: #32d74b; --down: #ff7a59; --car: #2997ff; --glass-car: #1f3a5c;
+  --glass: rgba(0,0,0,.6); --shadow: none; --pop: rgba(44,44,46,.88); }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 body { margin: 0; background: var(--bg); color: var(--text); }
+.embedded body { background: transparent; }
+.embedded header { display: none; }
+.embedded main { padding: 0 0 1rem; }
 
 header {
   position: sticky; top: 0; z-index: 10; padding: .9rem 1rem;
@@ -440,10 +448,42 @@ function showSliders() {
   $('kmOut').textContent = (+$('km').value).toLocaleString('en-IN') + ' km';
 }
 
+// The page runs two ways: on its own with the Flask API, or embedded as a Streamlit
+// component, where Python receives the inputs and sends the price back.
+const embedded = window.parent !== window;
+if (embedded) document.documentElement.classList.add('embedded');
+const toStreamlit = (type, data = {}) =>
+  window.parent.postMessage({ isStreamlitMessage: true, type, ...data }, '*');
+
+// ids are unique per page load, so a reloaded component never reuses an old answer
+const nonce = Math.random().toString(36).slice(2);
+let seq = 0, waiting = false, latest = null, started = false;
+function sendToStreamlit(body) {
+  latest = { ...body, id: `${nonce}-${++seq}` };
+  if (waiting) return;                 // one request in flight; the newest is sent after it returns
+  waiting = true;
+  toStreamlit('streamlit:setComponentValue', { value: latest, dataType: 'json' });
+}
+addEventListener('message', e => {
+  if (e.data?.type !== 'streamlit:render') return;
+  const { args, theme } = e.data;
+  if (theme?.base) document.documentElement.dataset.theme = theme.base;
+  if (!started) { started = true; init(args.options); return; }
+  const result = args.result;
+  if (!result || !waiting) return;
+  waiting = false;
+  if (result.id === latest.id) { $('price').classList.remove('busy'); animatePrice(result.price); }
+  else sendToStreamlit(latest);        // inputs changed while Python was working
+});
+if (embedded) {
+  toStreamlit('streamlit:componentReady', { apiVersion: 1 });
+  new ResizeObserver(() => toStreamlit('streamlit:setFrameHeight',
+    { height: document.documentElement.scrollHeight })).observe(document.body);
+}
+
 // Only the newest request matters; older ones are cancelled.
 let controller;
 async function predict() {
-  controller?.abort(); controller = new AbortController();
   $('price').classList.add('busy');
   const body = {
     ...current(),
@@ -452,6 +492,8 @@ async function predict() {
     mileage: +$('mileage').value, engine: +$('engine').value,
     max_power: +$('power').value, seats: +$('seats').value,
   };
+  if (embedded) return sendToStreamlit(body);
+  controller?.abort(); controller = new AbortController();
   try {
     const r = await fetch('/api/predict', { method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -476,8 +518,7 @@ $('disclose').addEventListener('click', () => {
   $('specs').classList.toggle('open', open);
 });
 
-(async () => {
-  const opts = await (await fetch('/api/options')).json();
+function init(opts) {
   cars = opts.cars;
   brandPicker = picker($('brandRow'), fillModels);
   modelPicker = picker($('modelRow'), fillSpecs);
@@ -490,7 +531,8 @@ $('disclose').addEventListener('click', () => {
   $('km').addEventListener('input', onSlide);
   ['power', 'engine', 'mileage', 'seats'].forEach(id => $(id).addEventListener('input', predict));
   fillModels();
-})();
+}
+if (!embedded) fetch('/api/options').then(r => r.json()).then(init);
 </script>
 </body>
 </html>
