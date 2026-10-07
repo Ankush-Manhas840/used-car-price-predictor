@@ -88,4 +88,4 @@ static/index.html                the web UI
 
 ## Credits
 
-The data analysis and modelling are my own work, done with an AI tutor (Claude) coaching me through the steps. The web interface (`server.py`, `static/index.html`) was built with Claude's help; my focus in this project was the machine-learning side.
+The analysis, modelling decisions and debugging are my own work; I used Claude as a tutor to learn concepts along the way. The web interface was built with Claude's help, since my focus in this project was the machine-learning side.
