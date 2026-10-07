@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Car Price Estimator</title>
+<style>
+:root {
+  --bg: #f5f5f7; --surface: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+  --line: rgba(0,0,0,.08); --accent: #0071e3; --seg: #e8e8ed; --seg-on: #ffffff;
+  --tyre-rim: #3a3a3c; --up: #1db954; --down: #ff6b4a; --car: #0071e3; --glass-car: #cfe6ff;
+  --glass: rgba(245,245,247,.72); --pop: rgba(255,255,255,.9); --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  font: 100%/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #000; --surface: #1c1c1e; --text: #f5f5f7; --muted: #98989d;
+    --line: rgba(255,255,255,.1); --accent: #2997ff; --seg: #2c2c2e; --seg-on: #636366;
+    --tyre-rim: #8e8e93; --up: #32d74b; --down: #ff7a59; --car: #2997ff; --glass-car: #1f3a5c;
+    --glass: rgba(0,0,0,.6); --shadow: none; --pop: rgba(44,44,46,.88); }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+
+header {
+  position: sticky; top: 0; z-index: 10; padding: .9rem 1rem;
+  background: var(--glass); backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+header div { max-width: 40rem; margin: 0 auto; font-weight: 600; letter-spacing: -.01em; }
+
+main { max-width: 40rem; margin: 0 auto; padding: 1rem 1rem 4rem; }
+
+.price {
+  position: relative; overflow: hidden; isolation: isolate;
+  text-align: center; padding: 2rem 1.25rem 1.25rem; margin-bottom: 1.25rem;
+  background: var(--surface); border-radius: 1.5rem; box-shadow: var(--shadow);
+  --tint: var(--accent);
+}
+.price.up { --tint: var(--up); }
+.price.down { --tint: var(--down); }
+.glow {
+  position: absolute; inset: -40% -20% auto; height: 120%; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--tint) 28%, transparent), transparent);
+  transition: background 500ms ease;
+}
+.price.pulse .glow { animation: pulse 700ms cubic-bezier(.2,.8,.2,1); }
+@keyframes pulse { from { transform: scale(1.25); opacity: 1; } to { transform: scale(1); opacity: .8; } }
+
+.delta {
+  height: 1.6rem; margin-bottom: .35rem; display: flex; justify-content: center;
+}
+.delta span {
+  display: inline-flex; align-items: center; gap: .25rem; padding: .1rem .6rem; border-radius: 999px;
+  font-size: .85rem; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--tint); background: color-mix(in srgb, var(--tint) 15%, transparent);
+}
+
+.road { position: relative; margin-top: 1.4rem; padding-top: 34px; }
+.car { position: absolute; top: 0; left: 0; width: 64px; height: 30px; will-change: transform; }
+.car svg { display: block; overflow: visible; }
+#body { transform-origin: 32px 22px; transform-box: view-box; }
+.puff {
+  position: absolute; left: -6px; top: 16px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--muted); opacity: 0;
+}
+.lane {
+  height: 4px; border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--line) 0 14px, transparent 14px 24px), var(--seg);
+}
+.ticks { display: flex; justify-content: space-between; margin-top: .4rem; font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.price .label { color: var(--muted); font-size: .9rem; letter-spacing: .01em; }
+.price .value {
+  font-size: clamp(2.6rem, 9vw, 3.75rem); font-weight: 700; line-height: 1.05;
+  letter-spacing: -.03em; font-variant-numeric: tabular-nums; margin: .35rem 0 .4rem;
+  transition: opacity 200ms ease;
+}
+.price .value.busy { opacity: .55; }
+.price .range { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+
+.group { background: var(--surface); border-radius: 1rem; box-shadow: var(--shadow); margin-bottom: 1.25rem; }
+.row { padding: .9rem 1rem; display: flex; align-items: center; gap: 1rem; }
+.row + .row { border-top: 1px solid var(--line); }
+.row > label, .row > .name { flex: 0 0 7.5rem; font-size: .95rem; }
+.row .ctl { flex: 1; min-width: 0; display: flex; align-items: center; gap: .75rem; justify-content: flex-end; }
+.section-title { color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; margin: 0 1rem .4rem; }
+
+input[type=number] {
+  font: inherit; color: var(--text); background: transparent; border: 0;
+  text-align: right; width: 100%; padding: .2rem 0; outline: none; appearance: none;
+}
+input[type=number]:focus { color: var(--accent); }
+
+/* Custom picker: replaces the unstyled OS dropdown */
+.picker-row { position: relative; cursor: pointer; transition: background 120ms ease; }
+.picker-row:first-child { border-radius: 1rem 1rem 0 0; }
+.picker-row:last-child { border-radius: 0 0 1rem 1rem; }
+.picker-row:active { background: var(--line); }
+.picker-btn {
+  font: inherit; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 0;
+  display: flex; align-items: center; gap: .4rem;
+}
+.picker-btn svg { opacity: .6; }
+.picker-row.open .picker-btn { color: var(--accent); }
+
+.popover {
+  position: absolute; right: .5rem; top: calc(100% - .25rem); z-index: 20;
+  width: min(18rem, calc(100vw - 2rem)); max-height: 22rem; display: flex; flex-direction: column;
+  background: var(--pop); border-radius: .9rem; overflow: hidden;
+  backdrop-filter: blur(30px) saturate(180%); -webkit-backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: 0 0 0 .5px var(--line), 0 12px 40px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+  transform-origin: top right; opacity: 0; transform: scale(.92) translateY(-4px); pointer-events: none;
+  transition: opacity 160ms ease, transform 260ms cubic-bezier(.2,.9,.3,1);
+}
+.picker-row.open .popover { opacity: 1; transform: none; pointer-events: auto; }
+.popover input {
+  font: inherit; font-size: .9rem; color: var(--text); margin: .5rem; padding: .45rem .7rem;
+  border: 0; border-radius: .55rem; background: var(--seg); outline: none;
+}
+.popover ul {
+  list-style: none; margin: 0; padding: 0 .35rem .35rem; overflow-y: auto; overscroll-behavior: contain;
+  position: relative; scrollbar-width: thin; scrollbar-color: var(--muted) transparent;
+}
+.popover li {
+  padding: .5rem .65rem; border-radius: .5rem; display: flex; justify-content: space-between;
+  align-items: center; font-size: .95rem; cursor: pointer;
+}
+.popover li.active { background: var(--accent); color: #fff; }
+.popover li .check { visibility: hidden; color: var(--accent); }
+.popover li.selected .check { visibility: visible; }
+.popover li.active .check { color: #fff; }
+.popover .empty { color: var(--muted); padding: .6rem .65rem; font-size: .9rem; }
+
+input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer; }
+.out { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.seg { display: inline-flex; background: var(--seg); border-radius: .6rem; padding: 2px; flex-wrap: wrap; }
+.seg button {
+  font: inherit; font-size: .85rem; border: 0; background: transparent; color: var(--text);
+  padding: .3rem .7rem; border-radius: .5rem; cursor: pointer;
+  transition: transform 100ms ease-out;
+}
+.seg button[aria-pressed=true] { background: var(--seg-on); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+.seg button:active, .disclose:active { transform: scale(.96); }
+
+.disclose {
+  width: 100%; font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer;
+  padding: .9rem 1rem; display: flex; justify-content: space-between; align-items: center;
+  transition: transform 100ms ease-out;
+}
+.disclose svg { transition: transform 300ms cubic-bezier(.2,.8,.2,1); }
+.disclose[aria-expanded=true] svg { transform: rotate(90deg); }
+.specs { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 350ms cubic-bezier(.2,.8,.2,1); }
+.specs.open { grid-template-rows: 1fr; }
+.specs > div { overflow: hidden; }
+.note { color: var(--muted); font-size: .8rem; padding: 0 1rem .9rem; }
+
+@media (max-width: 30rem) {
+  .row { flex-wrap: wrap; gap: .5rem; }
+  .row > label, .row > .name { flex-basis: 100%; }
+  .row .ctl { justify-content: flex-start; }
+  input[type=number] { text-align: left; }
+  .popover { right: auto; left: .5rem; transform-origin: top left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, .specs, .disclose svg { transition: none !important; }
+  .popover { transform: none !important; }
+  .price.pulse .glow { animation: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  header { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+</style>
+</head>
+<body>
+<header><div>🚗 Car Price Estimator</div></header>
+<main>
+  <section class="price" id="card" aria-live="polite">
+    <div class="glow" aria-hidden="true"></div>
+    <div class="label">Estimated selling price</div>
+    <div class="value" id="price">—</div>
+    <div class="delta" id="delta" aria-hidden="true"></div>
+    <div class="range" id="range">Typical error about ₹1 lakh</div>
+
+    <div class="road" id="road" aria-hidden="true">
+      <div class="car" id="car">
+        <div class="puff" id="puff"></div>
+        <svg viewBox="0 0 64 30" width="64" height="30">
+          <g id="body">
+            <path d="M6 20 L8 13 Q10 11 14 11 L20 11 L26 4 Q28 2 32 2 L42 2 Q46 2 48 5 L53 11 L57 12 Q61 13 61 17 L61 20 Z" fill="var(--car)"/>
+            <path d="M28 5 L23 11 L36 11 L36 5 Z M39 5 L39 11 L49 11 L45 6 Q44 5 42 5 Z" fill="var(--glass-car)"/>
+            <rect x="56" y="14" width="4" height="2.5" rx="1" fill="#ffd60a"/>
+          </g>
+          <g class="wheel" id="w1" transform="translate(17 22)"><circle r="5.4" fill="#1d1d1f" stroke="var(--tyre-rim)" stroke-width="1.2"/><circle r="2.6" fill="#c7c7cc"/><path d="M0 -5.5V5.5M-5.5 0H5.5" stroke="#8e8e93" stroke-width="1.2"/></g>
+          <g class="wheel" id="w2" transform="translate(49 22)"><circle r="5.4" fill="#1d1d1f" stroke="var(--tyre-rim)" stroke-width="1.2"/><circle r="2.6" fill="#c7c7cc"/><path d="M0 -5.5V5.5M-5.5 0H5.5" stroke="#8e8e93" stroke-width="1.2"/></g>
+        </svg>
+      </div>
+      <div class="lane"></div>
+      <div class="ticks"><span>₹1L</span><span>₹3L</span><span>₹10L</span><span>₹30L</span><span>₹1Cr</span></div>
+    </div>
+  </section>
+
+  <div class="section-title">Car</div>
+  <div class="group">
+    <div class="row picker-row" id="brandRow"><span class="name">Brand</span><div class="ctl"></div></div>
+    <div class="row picker-row" id="modelRow"><span class="name">Model</span><div class="ctl"></div></div>
+  </div>
+
+  <div class="section-title">Condition</div>
+  <div class="group">
+    <div class="row"><label for="age">Age</label>
+      <div class="ctl"><input type="range" id="age" min="0" max="25" value="5"><span class="out" id="ageOut"></span></div></div>
+    <div class="row"><label for="km">Driven</label>
+      <div class="ctl"><input type="range" id="km" min="0" max="300000" step="1000" value="50000"><span class="out" id="kmOut"></span></div></div>
+  </div>
+
+  <div class="section-title">Details</div>
+  <div class="group">
+    <div class="row"><span class="name">Fuel</span><div class="ctl"><div class="seg" id="fuel" role="group" aria-label="Fuel"></div></div></div>
+    <div class="row"><span class="name">Gearbox</span><div class="ctl"><div class="seg" id="trans" role="group" aria-label="Transmission"></div></div></div>
+    <div class="row"><span class="name">Seller</span><div class="ctl"><div class="seg" id="seller" role="group" aria-label="Seller"></div></div></div>
+  </div>
+
+  <div class="group">
+    <button class="disclose" id="disclose" aria-expanded="false" aria-controls="specs">
+      <span>Technical specs</span>
+      <svg width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M1 1l5.5 5.5L1 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </button>
+    <div class="specs" id="specs"><div>
+      <div class="note">Filled in with typical values for the selected model. Change them if yours differ.</div>
+      <div class="row"><label for="power">Power (bhp)</label><div class="ctl"><input type="number" id="power" step="0.1"></div></div>
+      <div class="row"><label for="engine">Engine (cc)</label><div class="ctl"><input type="number" id="engine"></div></div>
+      <div class="row"><label for="mileage">Mileage (km/l)</label><div class="ctl"><input type="number" id="mileage" step="0.1"></div></div>
+      <div class="row"><label for="seats">Seats</label><div class="ctl"><input type="number" id="seats" min="2" max="9"></div></div>
+    </div></div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const ACRONYMS = { bmw: 'BMW', mg: 'MG' };
+const title = s => ACRONYMS[s] || s.replace(/\b\w/g, c => c.toUpperCase());
+// Scroll only inside the list, never the page
+function reveal(list, center) {
+  const li = list.querySelector('.active');
+  if (!li) return;
+  const top = li.offsetTop, bottom = top + li.offsetHeight;
+  if (center) list.scrollTop = top - (list.clientHeight - li.offsetHeight) / 2;
+  else if (top < list.scrollTop) list.scrollTop = top;
+  else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+}
+const lakh = v => '₹' + (v / 1e5).toFixed(2) + ' lakh';
+let cars = {};
+
+// Springs: retargeting keeps the current value and velocity, so a new prediction
+// mid-animation redirects smoothly instead of jumping.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function makeSpring({ response, damping, epsilon, render }) {
+  const s = { x: 0, v: 0, target: 0, running: false, started: false };
+  const omega = 2 * Math.PI / response;
+  s.to = target => {
+    s.target = target;
+    if (!s.started || reduceMotion) { s.x = target; s.v = 0; s.started = true; render(s); return; }
+    if (s.running) return;
+    s.running = true;
+    let last = performance.now();
+    requestAnimationFrame(function step(now) {
+      const dt = Math.min((now - last) / 1000, 1 / 30); last = now;
+      const a = -omega * omega * (s.x - s.target) - 2 * damping * omega * s.v;
+      s.v += a * dt; s.x += s.v * dt;
+      if (Math.abs(s.x - s.target) < epsilon && Math.abs(s.v) < epsilon) {
+        s.x = s.target; s.v = 0; s.running = false;
+      }
+      render(s);
+      if (s.running) requestAnimationFrame(step);
+    });
+  };
+  return s;
+}
+
+// The number settles without overshoot (damping 1.0).
+const priceSpring = makeSpring({ response: 0.45, damping: 1, epsilon: 50, render: s => {
+  $('price').textContent = lakh(s.x);
+}});
+
+// The car drives along a log-scale road from ₹1 lakh to ₹1 crore. It's a physical
+// object, so it gets a little bounce (damping 0.7), wheels that roll with the distance
+// travelled, and a body that leans with acceleration.
+const carSpring = makeSpring({ response: 0.7, damping: 0.7, epsilon: 0.05, render: s => {
+  const width = Math.max(0, $('road').clientWidth - 64);
+  const x = s.x * width;
+  $('car').style.transform = `translateX(${x}px)`;
+  const turn = x / 6 * 180 / Math.PI;               // wheel radius 6
+  $('w1').setAttribute('transform', `translate(17 22) rotate(${turn})`);
+  $('w2').setAttribute('transform', `translate(49 22) rotate(${turn})`);
+  const lean = Math.max(-7, Math.min(7, -s.v * width * 0.006));   // nose lifts when speeding up
+  $('body').style.transform = `rotate(${lean}deg)`;
+}});
+const roadPos = price => Math.max(0, Math.min(1, (Math.log10(Math.max(price, 1)) - 5) / 2));
+
+let lastPrice = null;
+function animatePrice(price) {
+  const card = $('card');
+  if (lastPrice !== null && Math.abs(price - lastPrice) >= 1000) {
+    const up = price > lastPrice, diff = Math.abs(price - lastPrice);
+    card.classList.toggle('up', up); card.classList.toggle('down', !up);
+    const badge = document.createElement('span');
+    badge.textContent = (up ? '▲ ' : '▼ ') + lakh(diff);
+    $('delta').replaceChildren(badge);
+    if (!reduceMotion) {
+      // the badge arrives from the direction the price moved
+      badge.animate([{ transform: `translateY(${up ? 10 : -10}px) scale(.9)`, opacity: 0 },
+                     { transform: 'none', opacity: 1 }],
+                    { duration: 380, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
+      card.classList.remove('pulse'); void card.offsetWidth; card.classList.add('pulse');
+      $('puff').animate([{ opacity: .45, transform: 'translate(0,0) scale(.6)' },
+                         { opacity: 0, transform: `translate(${up ? -18 : 18}px,-6px) scale(1.6)` }],
+                        { duration: 600, easing: 'ease-out' });
+    }
+  }
+  lastPrice = price;
+  priceSpring.to(price);
+  carSpring.to(roadPos(price));
+  $('range').textContent = 'Likely ' + lakh(Math.max(price - 1e5, 0)) + ' – ' + lakh(price + 1e5);
+}
+addEventListener('resize', () => carSpring.to(carSpring.target));
+
+// Segmented controls: selection shows on press, not on release.
+function segmented(el, values, initial) {
+  el.innerHTML = '';
+  el.dataset.value = initial;
+  values.forEach(v => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = v; b.dataset.value = v;
+    b.setAttribute('aria-pressed', v === initial);
+    b.addEventListener('pointerdown', () => select(el, v));
+    b.addEventListener('click', () => select(el, v));   // keyboard
+    el.appendChild(b);
+  });
+}
+function select(el, v) {
+  if (el.dataset.value === v) return;
+  el.dataset.value = v;
+  el.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b.dataset.value === v));
+  predict();
+}
+const segVal = id => $(id).dataset.value;
+
+// Picker: a searchable popover anchored to its row, replacing the OS dropdown.
+const chevron = '<svg width="7" height="12" viewBox="0 0 7 12" aria-hidden="true"><path d="M1 1l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+let openPicker = null;
+function picker(row, onChange) {
+  const p = { value: null, options: [], active: 0, shown: [] };
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'picker-btn';
+  btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-label', row.querySelector('.name').textContent);
+  row.querySelector('.ctl').appendChild(btn);
+  const pop = document.createElement('div');
+  pop.className = 'popover';
+  pop.innerHTML = '<input type="search" placeholder="Search" aria-label="Search"><ul role="listbox"></ul>';
+  row.appendChild(pop);
+  const search = pop.querySelector('input'), list = pop.querySelector('ul');
+
+  function render() {
+    const q = search.value.trim().toLowerCase();
+    p.shown = p.options.filter(o => o.label.toLowerCase().includes(q));
+    p.active = Math.max(0, Math.min(p.active, p.shown.length - 1));
+    list.innerHTML = p.shown.length ? p.shown.map((o, i) =>
+      `<li role="option" data-i="${i}" aria-selected="${o.value === p.value}"
+         class="${o.value === p.value ? 'selected' : ''} ${i === p.active ? 'active' : ''}">
+         <span>${o.label}</span><span class="check">✓</span></li>`).join('')
+      : '<div class="empty">No matches</div>';
+  }
+  function open() {
+    if (openPicker && openPicker !== p) openPicker.close();
+    openPicker = p;
+    search.value = '';
+    p.active = Math.max(0, p.options.findIndex(o => o.value === p.value));
+    render();
+    row.classList.add('open'); btn.setAttribute('aria-expanded', 'true');
+    reveal(list, true);
+    if (matchMedia('(pointer: fine)').matches) search.focus({ preventScroll: true });
+  }
+  p.close = () => {
+    row.classList.remove('open'); btn.setAttribute('aria-expanded', 'false');
+    if (openPicker === p) openPicker = null;
+  };
+  function choose(o) {
+    p.close();
+    if (o && o.value !== p.value) { p.set(p.options, o.value); onChange(o.value); }
+  }
+  p.set = (options, value) => {
+    p.options = options; p.value = value;
+    btn.innerHTML = `<span>${options.find(o => o.value === value).label}</span>${chevron}`;
+  };
+
+  row.addEventListener('click', e => {
+    if (pop.contains(e.target)) return;
+    row.classList.contains('open') ? p.close() : open();
+  });
+  list.addEventListener('click', e => {
+    const li = e.target.closest('li');
+    if (li) choose(p.shown[+li.dataset.i]);
+  });
+  list.addEventListener('pointermove', e => {
+    const li = e.target.closest('li');
+    if (li && +li.dataset.i !== p.active) { p.active = +li.dataset.i; render(); }
+  });
+  search.addEventListener('input', () => { p.active = 0; render(); });
+  pop.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      p.active = Math.max(0, Math.min(p.shown.length - 1, p.active + (e.key === 'ArrowDown' ? 1 : -1)));
+      render(); reveal(list, false);
+    } else if (e.key === 'Enter') { e.preventDefault(); choose(p.shown[p.active]); }
+    else if (e.key === 'Escape') { p.close(); btn.focus(); }
+  });
+  return p;
+}
+document.addEventListener('pointerdown', e => {
+  if (openPicker && !e.target.closest('.picker-row.open')) openPicker.close();
+});
+
+let brandPicker, modelPicker;
+const current = () => ({ brand: brandPicker.value, model: modelPicker.value });
+
+function fillModels() {
+  const models = Object.keys(cars[brandPicker.value]).sort();
+  modelPicker.set(models.map(m => ({ value: m, label: m })), models[0]);
+  fillSpecs();
+}
+function fillSpecs() {
+  const s = cars[brandPicker.value][modelPicker.value];
+  $('power').value = s.max_power; $('engine').value = s.engine;
+  $('mileage').value = s.mileage; $('seats').value = s.seats;
+  predict();
+}
+function showSliders() {
+  $('ageOut').textContent = $('age').value + (+$('age').value === 1 ? ' year' : ' years');
+  $('kmOut').textContent = (+$('km').value).toLocaleString('en-IN') + ' km';
+}
+
+// Only the newest request matters; older ones are cancelled.
+let controller;
+async function predict() {
+  controller?.abort(); controller = new AbortController();
+  $('price').classList.add('busy');
+  const body = {
+    ...current(),
+    vehicle_age: +$('age').value, km_driven: +$('km').value,
+    seller_type: segVal('seller'), fuel_type: segVal('fuel'), transmission_type: segVal('trans'),
+    mileage: +$('mileage').value, engine: +$('engine').value,
+    max_power: +$('power').value, seats: +$('seats').value,
+  };
+  try {
+    const r = await fetch('/api/predict', { method: 'POST', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const { price } = await r.json();
+    $('price').classList.remove('busy');
+    animatePrice(price);
+  } catch (e) { if (e.name !== 'AbortError') $('range').textContent = 'Could not reach the model'; }
+}
+
+// Sliders update their label every frame, and ask for a new price at most once per frame.
+let queued = false;
+function onSlide() {
+  showSliders();
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => { queued = false; predict(); });
+}
+
+$('disclose').addEventListener('click', () => {
+  const open = $('disclose').getAttribute('aria-expanded') !== 'true';
+  $('disclose').setAttribute('aria-expanded', open);
+  $('specs').classList.toggle('open', open);
+});
+
+(async () => {
+  const opts = await (await fetch('/api/options')).json();
+  cars = opts.cars;
+  brandPicker = picker($('brandRow'), fillModels);
+  modelPicker = picker($('modelRow'), fillSpecs);
+  brandPicker.set(Object.keys(cars).sort().map(b => ({ value: b, label: title(b) })), 'maruti');
+  segmented($('fuel'), opts.fuel_types, 'Petrol');
+  segmented($('trans'), ['Manual', 'Automatic'], 'Manual');
+  segmented($('seller'), opts.seller_types, 'Individual');
+  showSliders();
+  $('age').addEventListener('input', onSlide);
+  $('km').addEventListener('input', onSlide);
+  ['power', 'engine', 'mileage', 'seats'].forEach(id => $(id).addEventListener('input', predict));
+  fillModels();
+})();
+</script>
+</body>
+</html>
