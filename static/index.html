@@ -234,7 +234,7 @@ input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); cursor: 
       <svg width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M1 1l5.5 5.5L1 12" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     </button>
     <div class="specs" id="specs"><div>
-      <div class="note">Filled in with typical values for the selected model. Change them if yours differ.</div>
+      <div class="note">Filled in with typical values for this model at this age. Change them if yours differ.</div>
       <div class="row"><label for="power">Power (bhp)</label><div class="ctl"><input type="number" id="power" step="0.1"></div></div>
       <div class="row"><label for="engine">Engine (cc)</label><div class="ctl"><input type="number" id="engine"></div></div>
       <div class="row"><label for="mileage">Mileage (km/l)</label><div class="ctl"><input type="number" id="mileage" step="0.1"></div></div>
@@ -437,10 +437,26 @@ function fillModels() {
   modelPicker.set(models.map(m => ({ value: m, label: m })), models[0]);
   fillSpecs();
 }
-function fillSpecs() {
-  const s = cars[brandPicker.value][modelPicker.value];
+// Specs follow the car's age: some model names cover two generations (a 3-year-old
+// "Innova" is really an Innova Crysta with ~50% more power). Uses the nearest age seen
+// in the data. Once the user types their own specs, we stop overwriting them.
+let specsEdited = false;
+function typicalSpecs() {
+  const car = cars[brandPicker.value][modelPicker.value];
+  const ages = Object.keys(car.by_age).map(Number);
+  if (!ages.length) return car;
+  const age = +$('age').value;
+  const nearest = ages.reduce((a, b) => Math.abs(b - age) < Math.abs(a - age) ? b : a);
+  return car.by_age[nearest];
+}
+function applySpecs() {
+  const s = typicalSpecs();
   $('power').value = s.max_power; $('engine').value = s.engine;
   $('mileage').value = s.mileage; $('seats').value = s.seats;
+}
+function fillSpecs() {
+  specsEdited = false;
+  applySpecs();
   predict();
 }
 function showSliders() {
@@ -505,8 +521,9 @@ async function predict() {
 
 // Sliders update their label every frame, and ask for a new price at most once per frame.
 let queued = false;
-function onSlide() {
+function onSlide(e) {
   showSliders();
+  if (e?.target.id === 'age' && !specsEdited) applySpecs();
   if (queued) return;
   queued = true;
   requestAnimationFrame(() => { queued = false; predict(); });
@@ -529,7 +546,10 @@ function init(opts) {
   showSliders();
   $('age').addEventListener('input', onSlide);
   $('km').addEventListener('input', onSlide);
-  ['power', 'engine', 'mileage', 'seats'].forEach(id => $(id).addEventListener('input', predict));
+  ['power', 'engine', 'mileage', 'seats'].forEach(id => $(id).addEventListener('input', () => {
+    specsEdited = true;
+    predict();
+  }));
   fillModels();
 }
 if (!embedded) fetch('/api/options').then(r => r.json()).then(init);

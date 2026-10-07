@@ -26,19 +26,27 @@ def train():
     # final model is trained on all the cleaned data (5-fold CV already gave R2 ~0.93)
     rf = RandomForestRegressor(n_estimators=100, random_state=34, n_jobs=-1)
     rf.fit(X, y)
-    # typical specs per car model, used to pre-fill the form
-    specs = df.groupby(['brand', 'model'])[['mileage','engine','max_power','seats']].median().reset_index()
-    return {'model': rf, 'columns': X.columns, 'specs': specs,
+    # typical specs per car model and age, used to pre-fill the form. Per age matters because
+    # some model names cover two generations (a 3-year-old "Innova" is really an Innova Crysta).
+    spec_cols = ['mileage','engine','max_power','seats']
+    specs = df.groupby(['brand', 'model'])[spec_cols].median().reset_index()
+    specs_by_age = df.groupby(['brand', 'model', 'vehicle_age'])[spec_cols].median().reset_index()
+    return {'model': rf, 'columns': X.columns, 'specs': specs, 'specs_by_age': specs_by_age,
             'fuel_types': sorted(df['fuel_type'].unique()),
             'seller_types': sorted(df['seller_type'].unique())}
+
+
+def _spec(r):
+    return {'mileage': round(float(r['mileage']), 1), 'engine': int(r['engine']),
+            'max_power': round(float(r['max_power']), 1), 'seats': int(r['seats'])}
 
 
 def options(bundle):
     cars = {}
     for _, r in bundle['specs'].iterrows():
-        cars.setdefault(r['brand'], {})[r['model']] = {
-            'mileage': round(float(r['mileage']), 1), 'engine': int(r['engine']),
-            'max_power': round(float(r['max_power']), 1), 'seats': int(r['seats'])}
+        cars.setdefault(r['brand'], {})[r['model']] = {**_spec(r), 'by_age': {}}
+    for _, r in bundle['specs_by_age'].iterrows():
+        cars[r['brand']][r['model']]['by_age'][int(r['vehicle_age'])] = _spec(r)
     return {'cars': cars, 'fuel_types': bundle['fuel_types'], 'seller_types': bundle['seller_types']}
 
 
