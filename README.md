@@ -1,5 +1,7 @@
 # 🚗 Used Car Price Predictor
 
+**[Live demo](https://usedcarchecker.streamlit.app/)**: if the app has been asleep, Streamlit takes a moment to wake it and the model trains on first start (~20 seconds).
+
 Predicts the resale price of a used car in India from its brand, model, age, kilometres driven and specs.
 A random forest trained on ~15,400 CarDekho listings, served through a small Flask app where the price updates live as you change the inputs.
 
